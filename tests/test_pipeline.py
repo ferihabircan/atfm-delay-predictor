@@ -31,6 +31,8 @@ def test_model_beats_baseline(flights):
     rep, _ = train_and_evaluate(flights)
     assert rep.metrics["model_mae"] < rep.metrics["baseline_mae"]
     assert rep.metrics["model_auc"] > 0.75
+    # P10-P90 interval should hold roughly 80% of actual delays
+    assert 0.7 < rep.metrics["interval_coverage"] < 0.9
 
 
 def test_load_rejects_bad_schema(tmp_path, flights):

@@ -1,5 +1,7 @@
 # ATFM Departure Delay Predictor
 
+**🌐 Live project page with interactive what-if tool: https://ferihabircan.github.io/atfm-delay-predictor/**
+
 Machine learning pipeline that predicts **departure delay (minutes)** and the
 probability that a flight departs **more than 15 minutes late** at major European
 airports. It uses the delay drivers that matter in Air Traffic Flow Management:
@@ -14,6 +16,9 @@ reactionary (knock-on) delay from the previous leg.
 |---|---|---|
 | Historical mean per airport & hour (baseline) | 8.40 | 0.711 |
 | Gradient boosting (this project) | **4.49** | **0.924** |
+
+Quantile models (P10 / P90) give an 80% prediction interval: **79.3%** of test
+flights fall inside it (target 80%), with an average width of 18.8 minutes.
 
 The model cuts the baseline error by **~47%**. Permutation importance shows
 demand/capacity ratio as the main driver, followed by convective weather and
@@ -35,8 +40,9 @@ delay cause reporting (capacity, weather, reactionary).
 3. **Validation**: chronological train/test split (train on the past, test on
    the future) to avoid leakage across days.
 4. **Models**: `HistGradientBoostingRegressor` (absolute error loss, robust to
-   delay outliers) and `HistGradientBoostingClassifier` for the 15-minute
-   punctuality threshold, both compared to a historical-mean baseline.
+   delay outliers), `HistGradientBoostingClassifier` for the 15-minute
+   punctuality threshold, and two quantile regressors (P10, P90) for
+   prediction intervals, all compared to a historical-mean baseline.
 5. **Explainability**: permutation importance on the test period.
 
 ## Usage
@@ -47,6 +53,7 @@ pip install -r requirements.txt
 PYTHONPATH=src python -m delay_predictor.cli            # synthetic data
 PYTHONPATH=src python -m delay_predictor.cli --data my_flights.csv
 PYTHONPATH=src pytest -q                                # tests
+PYTHONPATH=src python scripts/export_site_data.py       # refresh docs/ website data
 ```
 
 Outputs land in `reports/` (`metrics.json`, plots, trained model).
@@ -62,7 +69,6 @@ convective, prev_leg_delay_min, dep_delay_min`
 - Results above are on synthetic data; numbers on real data will differ.
 - Add METAR/TAF parsing for real weather features.
 - Add ATFM regulation data (regulated sector, reason code) as features.
-- Quantile regression to give delay ranges, not only point estimates.
 
 ## Project structure
 
@@ -71,5 +77,7 @@ src/delay_predictor/
   data.py    dataset generation, loading and schema validation
   model.py   features, chronological split, models, evaluation
   cli.py     training entry point, reports and plots
-tests/       pytest suite (schema, leakage, model vs baseline)
+scripts/     export_site_data.py: data for the project website
+docs/        project website (GitHub Pages)
+tests/       pytest suite (schema, leakage, model vs baseline, interval coverage)
 ```

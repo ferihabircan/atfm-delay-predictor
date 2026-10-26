@@ -8,5 +8,7 @@
   "model_auc": 0.9237945587273863,
   "model_f1": 0.7923413789591608,
   "delayed_share_test": 0.26630350194552527,
+  "interval_coverage": 0.7931517509727627,
+  "interval_width_min": 18.753857159963598,
   "mae_improvement_pct": 46.57582060338035
 }

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATFM Delay Predictor</title>
+<meta name="description" content="Machine learning model predicting departure delays and delay probability at major European airports, with prediction intervals and an interactive what-if tool.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="common.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#">ATFM Delay Predictor <span>· ATM data portfolio</span></a>
+    <nav>
+      <a href="#approach">Approach</a>
+      <a href="#results">Results</a>
+      <a href="#whatif">What-if tool</a>
+      <a href="#run">Run it</a>
+    </nav>
+    <button class="theme-toggle" aria-label="Toggle dark mode">☾</button>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Machine learning · Air Traffic Flow Management</p>
+    <h1>How late will this departure be, and how sure are we?</h1>
+    <p class="lead">A gradient-boosting model that predicts departure delay, the probability of a
+      delay over 15 minutes, and an 80% prediction interval for flights at eight major European hubs,
+      using the drivers that matter in ATFM: demand/capacity, weather and reactionary delay.</p>
+    <div class="btns">
+      <a class="btn primary" href="#whatif">Try the what-if tool</a>
+      <a class="btn ghost" href="https://github.com/ferihabircan/atfm-delay-predictor">View code on GitHub</a>
+    </div>
+    <div class="tags">
+      <span class="tag">Python</span><span class="tag">scikit-learn</span><span class="tag">pandas</span>
+      <span class="tag">Gradient boosting</span><span class="tag">Quantile regression</span>
+      <span class="tag">Permutation importance</span>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+  <div class="kpis" id="kpis"></div>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <p class="sub">The pipeline is built so that the numbers can be trusted: a fixed data schema,
+      a chronological split, a simple baseline to beat, and explanations for every model.</p>
+    <div class="grid3">
+      <div class="card"><div class="num">1</div><h3>Flight-level data</h3>
+        <p>185k departures with airport, hour, aircraft type, demand/capacity ratio, wind,
+          visibility, thunderstorms and the previous leg's delay. Real data in the same schema
+          (e.g. EUROCONTROL R&amp;D archive, OpenSky) can be plugged in with <code>--data</code>.</p></div>
+      <div class="card"><div class="num">2</div><h3>No look-ahead</h3>
+        <p>Train on the first 80% of days and test on the last 20%. Shuffled splits leak
+          same-day weather and congestion into training and overstate accuracy.</p></div>
+      <div class="card"><div class="num">3</div><h3>Three models, one baseline</h3>
+        <p>A median regressor (point estimate), a classifier (P(delay &gt; 15 min)) and two
+          quantile regressors (P10, P90), all compared with the historical mean delay per airport and hour.</p></div>
+    </div>
+  </section>
+
+  <section id="results">
+    <h2>Results on the test period</h2>
+    <p class="sub">Errors are measured on 38,550 flights the model never saw, all later in time than the training data.</p>
+    <div class="grid2">
+      <div class="card"><h3>What drives the predictions</h3>
+        <p>Increase in error (minutes) when a feature is shuffled. Higher = more important.</p>
+        <div id="ch-importance" class="chart"></div></div>
+      <div class="card"><h3>Delay through the day</h3>
+        <p>Mean observed vs predicted delay, with the average P10–P90 band.</p>
+        <div id="ch-hour" class="chart"></div></div>
+      <div class="card"><h3>Are the probabilities honest?</h3>
+        <p>Predicted probability of a &gt;15 min delay vs the share that actually was. On the diagonal = well calibrated.</p>
+        <div id="ch-calib" class="chart"></div></div>
+      <div class="card"><h3>Airport by airport</h3>
+        <p>Mean observed and predicted delay per departure airport.</p>
+        <div id="ch-airport" class="chart"></div></div>
+    </div>
+    <p class="note">Results are on a synthetic but structurally realistic dataset, so the absolute numbers will differ on real traffic.
+      The ranking of drivers matches the structure of CODA delay-cause reporting (capacity, weather, reactionary).</p>
+  </section>
+
+  <section id="whatif">
+    <h2>What-if tool</h2>
+    <p class="sub">Pick an airport and a scenario. The values come from the trained models
+      (precomputed for every combination), with other inputs held at typical values for an A320 on a summer weekday.</p>
+    <div class="card">
+      <div class="controls">
+        <div class="control"><label for="w-ap">Departure airport</label><select id="w-ap"></select></div>
+        <div class="control"><label for="w-hour">Scheduled hour: <strong id="w-hour-v"></strong></label>
+          <input type="range" id="w-hour" min="0" max="23" value="8"></div>
+        <div class="control"><label>Demand / capacity</label><div class="seg" id="w-dcr"></div></div>
+        <div class="control"><label>Thunderstorms</label><div class="seg" id="w-conv">
+          <button data-v="0" class="on">No</button><button data-v="1">Yes</button></div></div>
+      </div>
+      <div class="result">
+        <div class="box"><div class="v" id="r-p50"></div><div class="l">Predicted delay (median)</div></div>
+        <div class="box"><div class="v" id="r-int"></div><div class="l">80% interval (P10 to P90)</div></div>
+        <div class="box"><div class="v" id="r-prob"></div><div class="l">Chance of a delay over 15 min</div></div>
+      </div>
+      <div id="ch-whatif" class="chart"></div>
+    </div>
+  </section>
+
+  <section id="limits">
+    <h2>Limitations and next steps</h2>
+    <div class="grid2">
+      <div class="card"><h3>Limitations</h3><ul class="clean">
+        <li><strong>Synthetic data.</strong> Built to mimic real delay structure, but not real traffic.</li>
+        <li><strong>Day-level weather.</strong> Real thunderstorms change hour by hour.</li>
+        <li><strong>No regulation data.</strong> The model does not know which ATFM regulations were active.</li>
+      </ul></div>
+      <div class="card"><h3>Next steps</h3><ul class="clean">
+        <li><strong>Real data:</strong> train on the EUROCONTROL Aviation Data Repository for Research.</li>
+        <li><strong>METAR/TAF:</strong> parse hourly weather reports into features.</li>
+        <li><strong>Regulations:</strong> add the regulated sector and reason code as inputs.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="run">
+    <h2>Run it yourself</h2>
+<pre><code>git clone https://github.com/ferihabircan/atfm-delay-predictor
+cd atfm-delay-predictor
+pip install -r requirements.txt
+PYTHONPATH=src python -m delay_predictor.cli          # train + reports
+PYTHONPATH=src python scripts/export_site_data.py     # refresh this website's data
+PYTHONPATH=src pytest -q                              # tests</code></pre>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <strong>More from this ATM data portfolio</strong>
+    <div class="others">
+      <a href="https://ferihabircan.github.io/airspace-conflict-detector/"><strong>Airspace Conflict Detector</strong>
+        <span>Loss-of-separation detection and conflict prediction on an interactive map</span></a>
+      <a href="https://ferihabircan.github.io/atm-performance-dashboard/"><strong>ATM Performance &amp; CO2 Dashboard</strong>
+        <span>Punctuality, ATFM delay, taxi-out and CO2 KPIs, live in the browser</span></a>
+    </div>
+    Feriha Bircan · <a href="https://github.com/ferihabircan">github.com/ferihabircan</a> · MIT License
+  </div>
+</footer>
+
+<script>
+const fmt = (v, d = 1) => Number(v).toFixed(d);
+let D;
+
+function kpis() {
+  const m = D.metrics;
+  const items = [
+    [fmt(m.model_mae, 1) + " min", "Mean absolute error", `${fmt(m.mae_improvement_pct, 0)}% better than baseline (${fmt(m.baseline_mae, 1)})`],
+    [fmt(m.model_auc, 3), "ROC-AUC, delay > 15 min", `baseline ${fmt(m.baseline_auc, 3)}`],
+    [fmt(100 * m.interval_coverage, 1) + "%", "Inside P10–P90 interval", "target 80%"],
+    [(m.n_train + m.n_test).toLocaleString("en"), "Flights", `${m.n_test.toLocaleString("en")} in test period`],
+  ];
+  document.getElementById("kpis").innerHTML = items.map(([v, l, d]) =>
+    `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div><div class="d">${d}</div></div>`).join("");
+}
+
+function charts() {
+  const accent = css("--accent"), warn = css("--warn"), muted = css("--muted");
+  const imp = Object.entries(D.importance).slice(0, 10).reverse();
+  Plotly.react("ch-importance", [{
+    type: "bar", orientation: "h", x: imp.map(d => d[1]), y: imp.map(d => d[0].replaceAll("_", " ")),
+    marker: { color: accent }, hovertemplate: "%{y}: +%{x:.2f} min<extra></extra>",
+  }], baseLayout({ margin: { l: 170, r: 16, t: 10, b: 40 }, xaxis: { title: "MAE increase (min)" } }), plotConfig);
+
+  const h = D.by_hour;
+  Plotly.react("ch-hour", [
+    { x: h.map(d => d.sched_hour), y: h.map(d => d.p90), mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
+    { x: h.map(d => d.sched_hour), y: h.map(d => d.p10), mode: "lines", line: { width: 0 }, fill: "tonexty",
+      fillcolor: accent + "22", name: "P10–P90", hoverinfo: "skip" },
+    { x: h.map(d => d.sched_hour), y: h.map(d => d.observed), mode: "lines+markers", name: "Observed",
+      line: { color: warn, width: 2 }, marker: { size: 5 } },
+    { x: h.map(d => d.sched_hour), y: h.map(d => d.predicted), mode: "lines+markers", name: "Predicted",
+      line: { color: accent, width: 2, dash: "dot" }, marker: { size: 5 } },
+  ], baseLayout({ xaxis: { title: "Scheduled hour", dtick: 3 }, yaxis: { title: "Delay (min)" } }), plotConfig);
+
+  const c = D.calibration;
+  Plotly.react("ch-calib", [
+    { x: [0, 1], y: [0, 1], mode: "lines", line: { color: muted, dash: "dash", width: 1 }, name: "Perfect", hoverinfo: "skip" },
+    { x: c.map(d => d.predicted), y: c.map(d => d.observed), mode: "lines+markers", name: "Model",
+      line: { color: accent, width: 2 }, marker: { size: c.map(d => 6 + Math.sqrt(d.n) / 8) },
+      customdata: c.map(d => d.n), hovertemplate: "predicted %{x:.2f}<br>observed %{y:.2f}<br>%{customdata} flights<extra></extra>" },
+  ], baseLayout({ xaxis: { title: "Predicted probability", range: [0, 1] }, yaxis: { title: "Observed share", range: [0, 1] } }), plotConfig);
+
+  const a = [...D.by_airport].sort((x, y) => y.observed - x.observed);
+  Plotly.react("ch-airport", [
+    { type: "bar", x: a.map(d => d.adep), y: a.map(d => d.observed), name: "Observed", marker: { color: warn } },
+    { type: "bar", x: a.map(d => d.adep), y: a.map(d => d.predicted), name: "Predicted", marker: { color: accent } },
+  ], baseLayout({ barmode: "group", yaxis: { title: "Mean delay (min)" } }), plotConfig);
+}
+
+const state = { ap: "EGLL", hour: 8, dcr: 1.1, conv: 0 };
+function find(ap, hour, conv, dcr) {
+  return D.scenarios.find(s => s.adep === ap && s.sched_hour === hour && s.convective === conv && s.demand_capacity_ratio === dcr);
+}
+function whatif() {
+  document.getElementById("w-hour-v").textContent = String(state.hour).padStart(2, "0") + ":00";
+  const s = find(state.ap, state.hour, state.conv, state.dcr);
+  document.getElementById("r-p50").textContent = fmt(Math.max(s.p50, 0), 0) + " min";
+  document.getElementById("r-int").textContent = `${fmt(s.p10, 0)} to ${fmt(s.p90, 0)} min`;
+  document.getElementById("r-prob").textContent = fmt(100 * s.prob15, 0) + "%";
+
+  const accent = css("--accent"), warn = css("--warn");
+  const hrs = [...Array(24).keys()];
+  const rows = hrs.map(h => find(state.ap, h, state.conv, state.dcr));
+  Plotly.react("ch-whatif", [
+    { x: hrs, y: rows.map(r => r.p90), mode: "lines", line: { width: 0 }, showlegend: false, hoverinfo: "skip" },
+    { x: hrs, y: rows.map(r => r.p10), mode: "lines", line: { width: 0 }, fill: "tonexty", fillcolor: accent + "26", name: "P10–P90" },
+    { x: hrs, y: rows.map(r => r.p50), mode: "lines", name: "Median prediction", line: { color: accent, width: 2.5 },
+      hovertemplate: "%{x}:00 → %{y:.0f} min<extra></extra>" },
+    { x: [state.hour], y: [rows[state.hour].p50], mode: "markers", name: "Selected", marker: { color: warn, size: 12 } },
+  ], baseLayout({ xaxis: { title: `Scheduled hour at ${state.ap}`, dtick: 2 }, yaxis: { title: "Delay (min)" } }), plotConfig);
+}
+
+function setupControls() {
+  const sel = document.getElementById("w-ap");
+  sel.innerHTML = D.airports.map(a => `<option ${a === state.ap ? "selected" : ""}>${a}</option>`).join("");
+  sel.onchange = () => { state.ap = sel.value; whatif(); };
+  const hr = document.getElementById("w-hour");
+  hr.oninput = () => { state.hour = +hr.value; whatif(); };
+  const dcr = document.getElementById("w-dcr");
+  dcr.innerHTML = D.dcr_levels.map(v => `<button data-v="${v}" class="${v === state.dcr ? "on" : ""}">${v}</button>`).join("");
+  for (const seg of [dcr, document.getElementById("w-conv")]) {
+    seg.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      seg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+      if (seg === dcr) state.dcr = +b.dataset.v; else state.conv = +b.dataset.v;
+      whatif();
+    });
+  }
+}
+
+fetch("data.json").then(r => r.json()).then(data => {
+  D = data;
+  kpis(); charts(); setupControls(); whatif();
+  onThemeChange(() => { charts(); whatif(); });
+});
+</script>
+</body>
+</html>

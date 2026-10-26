@@ -62,6 +62,13 @@ def build_classifier(seed: int = 0) -> Pipeline:
         early_stopping=True, random_state=seed))
 
 
+def build_quantile(alpha: float, seed: int = 0) -> Pipeline:
+    """Quantile regressor, used for P10/P90 prediction intervals."""
+    return _pipeline(HistGradientBoostingRegressor(
+        max_iter=300, learning_rate=0.06, max_leaf_nodes=31,
+        loss="quantile", quantile=alpha, early_stopping=True, random_state=seed))
+
+
 class HistoricalMeanBaseline:
     """Predicts the mean delay seen in training for the same airport and hour."""
 
@@ -92,9 +99,13 @@ def train_and_evaluate(df: pd.DataFrame, seed: int = 0) -> tuple[Report, dict]:
     reg = build_regressor(seed).fit(train[FEATURES], y_tr)
     clf = build_classifier(seed).fit(train[FEATURES], yb_tr)
 
+    q10 = build_quantile(0.1, seed).fit(train[FEATURES], y_tr)
+    q90 = build_quantile(0.9, seed).fit(train[FEATURES], y_tr)
+
     p_base = base.predict(test)
     p_reg = reg.predict(test[FEATURES])
     proba = clf.predict_proba(test[FEATURES])[:, 1]
+    lo, hi = q10.predict(test[FEATURES]), q90.predict(test[FEATURES])
 
     rep = Report()
     rep.metrics = {
@@ -106,6 +117,9 @@ def train_and_evaluate(df: pd.DataFrame, seed: int = 0) -> tuple[Report, dict]:
         "model_auc": roc_auc_score(yb_te, proba),
         "model_f1": f1_score(yb_te, proba > 0.5),
         "delayed_share_test": float(yb_te.mean()),
+        # Share of flights whose actual delay falls inside [P10, P90] (target 0.8)
+        "interval_coverage": float(((y_te >= lo) & (y_te <= hi)).mean()),
+        "interval_width_min": float((hi - lo).mean()),
     }
     rep.metrics["mae_improvement_pct"] = 100 * (
         1 - rep.metrics["model_mae"] / rep.metrics["baseline_mae"])
@@ -117,6 +131,7 @@ def train_and_evaluate(df: pd.DataFrame, seed: int = 0) -> tuple[Report, dict]:
     rep.importance = pd.Series(pi.importances_mean, index=FEATURES).sort_values(
         ascending=False)
 
-    artefacts = {"regressor": reg, "classifier": clf, "test": test,
-                 "pred": p_reg, "proba": proba}
+    artefacts = {"regressor": reg, "classifier": clf, "q10": q10, "q90": q90,
+                 "train": train, "test": test, "pred": p_reg, "proba": proba,
+                 "lo": lo, "hi": hi}
     return rep, artefacts
